@@ -1,41 +1,73 @@
+using backend.Data;
+using backend.Test;
+using DotNetEnv;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
 
+if (builder.Environment.IsDevelopment())
+{
+
+    var envPath = Path.Combine(
+       builder.Environment.ContentRootPath,
+       "..",
+       ".env"
+    );
+    Env.Load(envPath);
+
+    string db_name = Environment.GetEnvironmentVariable("DB_NAME") ?? "";
+    string id = Environment.GetEnvironmentVariable("DB_ID") ?? "";
+    string db_password = Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "";
+    string db_server = "localhost";
+
+
+
+    var connectionString = $"Server={db_server},1433;Database={db_name};User Id={id};Password={db_password};TrustServerCertificate=true;Encrypt=False";
+    builder.Services.AddDbContext<ApplicationDBContext>(options => options.UseSqlServer(connectionString));
+}
+
+if (builder.Environment.IsProduction())
+{
+
+    Env.Load();
+    builder.Services.AddDbContext<ApplicationDBContext>(options => options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+}
+
+
+builder.Services.AddOpenApi();
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDBContext>();
+
+    if (!db.Datas.Any())
+    {
+        db.Datas.Add(new ApiTestData
+        {
+            Id = Guid.NewGuid(),
+            TestData = "Hello from API"
+        });
+
+        db.SaveChanges();
+    }
+}
+
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
 }
-
 app.UseHttpsRedirection();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
-var summaries = new[]
+app.MapGet("api/data", async (ApplicationDBContext db) =>
 {
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+    var data = await db.Datas.ToListAsync();
+    return data.ToList();
+}).WithName("TestData");
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
